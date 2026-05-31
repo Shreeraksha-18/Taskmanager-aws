@@ -1,0 +1,19 @@
+cat > .gitignore << 'EOF'
+# Secrets — never commit
+terraform/terraform.tfvars
+**/.env
+
+# Terraform state — keep local only
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/tfplan
+
+# Node
+node_modules/
+frontend/build/
+
+# OS
+.DS_Store
+EOF
