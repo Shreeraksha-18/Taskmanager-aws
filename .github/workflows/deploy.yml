@@ -1,0 +1,93 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  TF_DIR:     ./terraform
+
+jobs:
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - run: npm test --if-present
+        working-directory: backend
+
+  terraform:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      s3_bucket:  ${{ steps.tf-out.outputs.s3 }}
+      cf_dist_id: ${{ steps.tf-out.outputs.cf }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+      - run: terraform init
+        working-directory: ${{ env.TF_DIR }}
+      - run: terraform plan -out=tfplan -input=false
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password }}
+          TF_VAR_github_repo: ${{ secrets.TF_VAR_github_repo }}
+      - run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password }}
+          TF_VAR_github_repo: ${{ secrets.TF_VAR_github_repo }}
+      - name: Capture outputs
+        id: tf-out
+        run: |
+          echo "s3=$(terraform output -raw s3_bucket_name)"     >> $GITHUB_OUTPUT
+          echo "cf=$(terraform output -raw cf_distribution_id)" >> $GITHUB_OUTPUT
+        working-directory: ${{ env.TF_DIR }}
+
+  deploy-frontend:
+    needs: terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
+      - name: Build React
+        run: REACT_APP_API_URL="" npm run build
+        working-directory: frontend
+      - name: Upload to S3
+        run: |
+          aws s3 sync frontend/build/ \
+            s3://${{ needs.terraform.outputs.s3_bucket }} --delete
+          aws s3 cp frontend/build/index.html \
+            s3://${{ needs.terraform.outputs.s3_bucket }}/index.html \
+            --cache-control "no-cache,no-store,must-revalidate"
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ needs.terraform.outputs.cf_dist_id }} \
+            --paths "/*"
