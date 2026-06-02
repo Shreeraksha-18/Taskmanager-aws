@@ -10,6 +10,7 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
+  const completedCount = tasks.filter((t) => t.done).length;
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -41,25 +42,43 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <h1>Task Manager</h1>
-      {error && <p className="error">{error}</p>}
-      <form onSubmit={addTask}>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder="New task..."
-        />
-        <button type="submit">Add</button>
-      </form>
-      <ul>
-        {tasks.map(t => (
-          <li key={t.id} className={t.done ? 'done' : ''}>
-            <span onClick={() => toggle(t.id)}>{t.title}</span>
-            <button onClick={() => remove(t.id)}>✕</button>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <main className="app-shell">
+      <div className="app">
+        <header className="app-header">
+          <h1>Task Manager</h1>
+          <p>{completedCount}/{tasks.length} completed</p>
+        </header>
+
+        {error && <p className="error">{error}</p>}
+
+        <form onSubmit={addTask} className="task-form">
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="What needs to be done?"
+          />
+          <button type="submit">Add Task</button>
+        </form>
+
+        <ul className="task-list">
+          {tasks.length === 0 && (
+            <li className="empty-state">No tasks yet. Add your first task above.</li>
+          )}
+          {tasks.map((t) => (
+            <li key={t.id} className={t.done ? 'done' : ''}>
+              <button
+                type="button"
+                className="task-title"
+                onClick={() => toggle(t.id)}
+                aria-label={`Toggle ${t.title}`}
+              >
+                {t.title}
+              </button>
+              <button type="button" className="delete-btn" onClick={() => remove(t.id)}>Delete</button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </main>
   );
 }
